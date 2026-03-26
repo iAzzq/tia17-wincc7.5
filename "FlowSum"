@@ -1,0 +1,71 @@
+FUNCTION_BLOCK "FlowSum"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      Flow_AI : Int;   // 瞬时流量输入(m³/h)
+   END_VAR
+
+   VAR 
+      HI_LIM : Real;   // 量程上限
+      L0_LIM : Real;   // 量程下限
+      Flow_Real : Real;   // 瞬时流量实数值
+      Small_signal : Real;   // 小信号切除(低于此设定值流量不进行累积)
+      FlowSumSubtotal : Real;   // 流量小计
+      FlowSumTotal : Real;   // 流量总计(流量小计x1000）
+      FlowSumSubt_Clear : Bool;   // 小计清零
+      FlowSumTotal_Clear : Bool;   // 总计清零
+      Err_broken : Bool;
+      Err_overrun : Bool;
+      Sim_Act : Bool;
+      Sim_Input : Int;
+   END_VAR
+
+
+BEGIN
+	//Flow accumulator block
+	//Programming language: SCL   
+	//The program version: 20210709 V1.0
+	//Program the author: Linshilei
+	//Program to modify:None
+	//Note:None
+	    IF #Flow_AI <= -4864 THEN
+	        #Flow_Real := 0.0;
+	        #Err_broken := TRUE;
+	    ELSE
+	        #Err_broken := FALSE;
+	END_IF;
+	IF #Flow_AI >= 32511 THEN
+	    #Flow_Real := 0.0;
+	    #Err_overrun := TRUE;
+	ELSE
+	    #Err_overrun := FALSE;
+	END_IF;
+	IF #Flow_AI > 0 AND #Flow_AI <= 27648 AND NOT #Sim_Act THEN
+	    #Flow_Real := #HI_LIM / 27648.0 * INT_TO_REAL(#Flow_AI) + #L0_LIM;//The quantities are converted to real numbers
+	ELSIF #Sim_Act THEN
+	    #Flow_Real := #HI_LIM / 27648.0 * INT_TO_REAL(#Sim_Input) + #L0_LIM;//The quantities are converted to real numbers
+	ELSE
+	    #Flow_Real := 0.0;
+	END_IF;
+	IF #Flow_Real < #L0_LIM THEN
+	    #Flow_Real := 0.0;
+	ELSIF #Flow_Real > #HI_LIM THEN
+	    #Flow_Real := #HI_LIM;
+	END_IF;
+	IF #Flow_Real >= #Small_signal THEN //Small signal excision
+	    #FlowSumSubtotal := #Flow_Real / 36000.0 + #FlowSumSubtotal; //Timing interrupt at 100ms
+	END_IF;
+	IF #FlowSumSubt_Clear = 1 THEN //Flow subcount cleared to zero
+	    #FlowSumSubtotal := 0.0;
+	    #FlowSumSubt_Clear := 0;
+	END_IF;
+	IF #FlowSumSubtotal >= 1000.0 THEN //Total Accumulated Flow
+	    #FlowSumTotal := #FlowSumTotal + 1.0;
+	    #FlowSumSubtotal := 0.0;
+	END_IF;
+	IF #FlowSumTotal_Clear = 1 THEN //The total flow is cleared to zero
+	    #FlowSumTotal := 0.0;
+	    #FlowSumTotal_Clear := 0;
+	END_IF;
+END_FUNCTION_BLOCK
+
