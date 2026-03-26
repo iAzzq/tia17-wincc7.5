@@ -1,0 +1,124 @@
+FUNCTION_BLOCK "AnIn"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT DB_SPECIFIC
+      PV_Input : Int;
+      PV_HR : Real;
+      PV_LR : Real;
+   END_VAR
+   VAR_INPUT 
+      "PV_Input Int 0.0 0 True True  PV_Input Int 0.0 0 True True True False  False" : Bool;
+   END_VAR
+
+   VAR_OUTPUT DB_SPECIFIC
+      PV_Out : Real;
+      Qbroken : Bool;
+      Qoverrun : Bool;
+      QAHH : Bool;   // 上上限报警
+      QAWH : Bool;   // 上限警告
+      QAWL : Bool;   // 下限警告
+      QALL : Bool;   // 下下限报警
+   END_VAR
+
+   VAR DB_SPECIFIC
+      Err_broken : Bool;   // 输入断线
+      Err_overrun : Bool;   // 超过输入值上限
+      AHH_Enble : Bool;   // 激活上上限报警
+      AWH_Enble : Bool;   // 激活上限警告
+      AWL_Enble : Bool;   // 激活下限警告
+      ALL_Enble : Bool;   // 激活下下限报警
+      AHH : Bool;   // 上上限报警
+      AWH : Bool;   // 上限警告
+      AWL : Bool;   // 下限警告
+      ALL : Bool;   // 下下限报警
+      PV_R : Real;
+      AHH_R : Real;
+      AWH_R : Real;
+      AWL_R : Real;
+      ALL_R : Real;
+      Sim_Act : Bool;   // 激活仿真
+      Sim_Input : Int;   // 输入仿真值
+      State_Arlam : Int;
+   END_VAR
+
+
+BEGIN
+	//Analog quantity processing block
+	//Programming language: SCL   
+	//The program version: 20210709 V1.0
+	//Program the author: Linshilei
+	//Program to modify:None
+	//Note:None
+	//DataProcess
+	IF #PV_Input > 32511 THEN //------input valve Overrun
+	    #Err_overrun := TRUE;
+	    #Err_broken := FALSE;
+	    #PV_R := 0.0;
+	ELSE
+	    #Err_overrun := FALSE;
+	END_IF;
+	
+	IF #PV_Input <= -4864 THEN  //------input "valve" Broken
+	    #Err_overrun := FALSE;
+	    #Err_broken := TRUE;
+	    #PV_R := 0.0;
+	ELSE
+	    #Err_broken := FALSE;
+	END_IF;
+	IF #PV_Input >= 0 AND #PV_Input <= 27648 AND NOT #Sim_Act THEN
+	    #PV_R := INT_TO_REAL(#PV_Input) / 27648.0 * (#PV_HR - #PV_LR) + #PV_LR; //-------------Process value
+	ELSIF #Sim_Act THEN
+	    #PV_R := INT_TO_REAL(#Sim_Input) / 27648.0 * (#PV_HR - #PV_LR) + #PV_LR; //-------------Process value
+	END_IF;
+	// Upper upper alarm
+	IF #PV_R >= #AHH_R AND #AHH_Enble THEN
+	    #AHH := TRUE;
+	    #AWL := FALSE;
+	    #ALL := FALSE;
+	ELSE
+	    #AHH := FALSE;
+	END_IF;
+	// Upper alarm
+	IF #PV_R >= #AWH_R AND #AWH_Enble THEN
+	    #AWH := TRUE;
+	    #AWL := FALSE;
+	    #ALL := FALSE;
+	ELSE
+	    #AWH := FALSE;
+	END_IF;
+	// Lower  alarm
+	IF #PV_R <= #AWL_R AND #AWL_Enble THEN
+	    #AHH := FALSE;
+	    #AWH := FALSE;
+	    #AWL := TRUE;
+	    
+	ELSE
+	    #AWL := FALSE;
+	END_IF;
+	// Lower and Lower alarm
+	IF #PV_R <= #ALL_R AND #ALL_Enble THEN
+	    #AHH := FALSE;
+	    #AWH := FALSE;
+	    #ALL := TRUE;
+	ELSE
+	    #ALL := FALSE;
+	END_IF;
+	//OutPut
+	#PV_Out := #PV_R;
+	#Qbroken := #Err_broken;
+	#Qoverrun := #Err_overrun;
+	#QAHH := #AHH;
+	#QAWH := #AWH;
+	#QAWL := #AWL;
+	#QALL := #ALL;
+	//State
+	#State_Arlam.%X0 := #QAHH;
+	#State_Arlam.%X1 := #QAWH;
+	#State_Arlam.%X2 := #QAWL;
+	#State_Arlam.%X3 := #QALL;
+	
+	
+	
+	
+END_FUNCTION_BLOCK
+
