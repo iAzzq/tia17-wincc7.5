@@ -1,0 +1,295 @@
+FUNCTION_BLOCK "PIDCtrl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT DB_SPECIFIC
+      COM_RST : Bool := FALSE;   // complete restart
+      MAN_ON : Bool := TRUE;   // manual value on
+      CYCLE : Time := T#100MS;   // sample time
+      PV_IN : Real := 0.0;   // process variable in
+      PV_HR : Real;
+      PV_LR : Real;
+   END_VAR
+   VAR_INPUT 
+      "COM_RST Bool 0.0 FALSE True True True False  complete restart" : Bool;
+   END_VAR
+
+   VAR_OUTPUT DB_SPECIFIC
+      LMN : Real := 0.0;   // manipulated value
+      LMN_PER : Word := WORD#16#0000;   // manipulated value peripherie
+      QLMN_HLM : Bool := FALSE;   // high limit of manipulated value reached
+      QLMN_LLM : Bool := FALSE;   // low limit of manipulated value reached
+      LMN_P : Real := 0.0;   // proportionality component
+      LMN_I : Real := 0.0;   // integral component
+      LMN_D : Real := 0.0;   // derivative component
+      PV : Real := 0.0;   // process variable
+      ER : Real := 0.0;   // error signal Static Variables
+   END_VAR
+
+   VAR_IN_OUT DB_SPECIFIC
+      SP_INT : Real := 0.0;   // internal setpoint
+      MAN : Real := 0.0;   // manual value
+   END_VAR
+
+   VAR DB_SPECIFIC
+      P_SEL : Bool := TRUE;   // proportional action on
+      I_SEL : Bool := TRUE;   // integral action on
+      INT_HOLD : Bool := FALSE;   // intetral action hold
+      I_ITL_ON : Bool := FALSE;   // initialization of the integral action
+      D_SEL : Bool := FALSE;   // derivative action on
+      GAIN : Real := 2.0;   // proprotional gain
+      TI : Time := T#20S;   // reset time
+      TD : Time := T#10S;   // derivative time
+      TM_LAG : Time := T#2S;   // TIME lag OF the derivative action
+      DEADB_W : Real := 0.0;   // dead band width
+      LMN_HLM : Real := 100.0;   // manipulated value high limit
+      LMN_LLM : Real := 0.0;   // manipulated value low limit
+      LMN_FAC : Real := 1.0;   // manipulated value factor
+      LMN_OFF : Real := 0.0;   // manipulated value offset
+      I_ITLVAL : Real := 0.0;   // initialization value of the integral action
+      DISV : Real := 0.0;   // disturbance variable Output Parameters
+      sInvAlt : Real := 0.0;   // Last KP*ERROR for I computing
+      sIanteilAlt : Real := 0.0;   // I value saved
+      sRestInt : Real := 0.0;
+      sRestDif : Real := 0.0;
+      sRueck : Real := 0.0;
+      sLmn : Real := 0.0;
+      sbArwHLmOn : Bool := FALSE;
+      sbArwLLmOn : Bool := FALSE;
+      sbILimOn : Bool := FALSE;
+      SP_Add : Bool;
+      SP_Sub : Bool;
+      MAN_Add : Bool;
+      MAN_Sub : Bool;
+   END_VAR
+   VAR 
+      "P_SEL Bool 54.0 TRUE True True True False  proportional action on" : Bool;
+   END_VAR
+
+   VAR_TEMP 
+      Hvar : Real;   // Hilfsvariable
+      rCycle : Real;   // sample time by Second
+      Diff : Real;   // diff
+      Istwert : Real;
+      ErKp : Real;
+      rTi : Real;   // I time by second
+      rTd : Real;   // D time by second
+      rTmlag : Real;   // Lag time by second
+      Panteil : Real;   // P portion
+      Ianteil : Real;   // I portion
+      Danteil : Real;   // D potion
+      Verstaerk : Real;   // temp for computing I .
+      RueckDiff : Real;   // temp for copmuting D.
+      RueckAlt : Real;   // temp for computing D.
+      dLmn : Real;   // temp for LMN
+      gf : Real;   // gf = dLmn - HLM( over)
+      rVal : Real;   // rVal = HLM - DISV Block Parameters Input Parameters
+   END_VAR
+
+
+BEGIN
+	
+	// Statement Section
+	// restart
+	
+	IF #COM_RST THEN
+	    // restart
+	    #sIanteilAlt := #I_ITLVAL;
+	    #LMN := 0.0;
+	    #QLMN_HLM := false;
+	    #QLMN_LLM := false;
+	    
+	    #LMN_P := 0.0;
+	    #LMN_I := 0.0;
+	    #LMN_D := 0.0;
+	    #LMN_PER := 0;
+	    
+	    #PV := 0.0;
+	    #ER := 0.0;
+	    #sInvAlt := 0.0;
+	    #sRestInt := 0.0;
+	    #sRestDif := 0.0;
+	    #sRueck := 0.0;
+	    #sLmn := 0.0;
+	    #sbArwHLmOn := false;
+	    #sbArwLLmOn := false;
+	ELSE
+	    
+	    // CYCLE to rCycle
+	    #rCycle := DINT_TO_REAL(TIME_TO_DINT(#CYCLE)) * 0.001;
+	    
+	    //process input dealt;
+	    #Istwert := #PV_IN;
+	    
+	    #PV := #Istwert;
+	    
+	    #ErKp := #SP_INT - #PV;
+	    IF #ErKp < - #DEADB_W THEN
+	        #ER := #ErKp + #DEADB_W;
+	    ELSIF #ErKp > #DEADB_W THEN
+	        #ER := #ErKp - #DEADB_W;
+	    ELSE
+	        #ER := 0.0;
+	    END_IF;
+	    
+	    #ErKp := #ER * #GAIN;
+	    #rTi := DINT_TO_REAL(TIME_TO_DINT(#TI)) * 0.001;
+	    #rTd := DINT_TO_REAL(TIME_TO_DINT(#TD)) * 0.001;
+	    #rTmlag := DINT_TO_REAL(TIME_TO_DINT(#TM_LAG)) * 0.001;
+	    
+	    IF #rTi < #rCycle * 0.5 THEN
+	        #rTi := #rCycle * 0.5;
+	    END_IF;
+	    
+	    IF #rTd < #rCycle THEN
+	        #rTd := #rCycle;
+	    END_IF;
+	    
+	    IF #rTmlag < #rCycle * 0.5 THEN
+	        #rTmlag := #rCycle * 0.5;
+	    END_IF;
+	    
+	    
+	    IF #P_SEL THEN
+	        #Panteil := #ErKp;
+	    ELSE
+	        #Panteil := 0.0;
+	    END_IF;
+	    
+	    //I 
+	    IF #I_SEL THEN
+	        IF #I_ITL_ON THEN
+	            #Ianteil := #I_ITLVAL;
+	            #sRestInt := 0.0;
+	        ELSE
+	            IF #MAN_ON THEN
+	                #Ianteil := #sLmn - #Panteil - #DISV;
+	                #sRestInt := 0.0;
+	            ELSE
+	                #Diff := #rCycle / #rTi * (#ErKp + #sInvAlt) * 0.5 + #sRestInt;
+	                IF (#Diff > 0.0 AND #sbArwHLmOn) OR #INT_HOLD OR (#Diff < 0.0 AND #sbArwLLmOn) THEN
+	                    #Diff := 0.0;
+	                END_IF;
+	                
+	                #Ianteil := #sIanteilAlt + #Diff;
+	                #sRestInt := #sIanteilAlt - #Ianteil + #Diff;
+	                
+	            END_IF;
+	            
+	        END_IF;
+	        
+	    ELSE
+	        #Ianteil := 0.0;
+	        #sRestInt := 0.0;
+	    END_IF;
+	    
+	    
+	    //D
+	    #Diff := #ErKp;
+	    IF NOT #MAN_ON AND #D_SEL THEN
+	        #Verstaerk := #rTd / (#rCycle * 0.5 + #rTmlag);
+	        #Danteil := (#Diff - #sRueck) * #Verstaerk;
+	        #RueckAlt := #sRueck;
+	        #RueckDiff := #rCycle / #rTd * #Danteil + #sRestDif;
+	        #sRueck := #RueckDiff + #RueckAlt;
+	        #sRestDif := #RueckAlt - #sRueck + #RueckDiff;
+	    ELSE
+	        #Danteil := 0.0;
+	        #sRestDif := 0.0;
+	        #sRueck := #Diff;
+	    END_IF;
+	    
+	    #dLmn := #Panteil + #Ianteil + #Danteil + #DISV; //pid + disv
+	    IF #MAN_ON THEN
+	        #dLmn := #MAN;
+	    ELSE
+	        IF NOT #I_ITL_ON AND #I_SEL THEN
+	            
+	            IF #Ianteil > (#LMN_HLM - #DISV) AND (#dLmn > #LMN_HLM) AND (#dLmn - #LMN_D > #LMN_HLM) THEN
+	                #rVal := #LMN_HLM - #DISV;
+	                #gf := #dLmn - #LMN_HLM;
+	                #rVal := #Ianteil - #rVal;
+	                IF #rVal > #gf THEN
+	                    #rVal := #gf;
+	                END_IF;
+	                #Ianteil := #Ianteil - #rVal;
+	            ELSIF (#Ianteil < #LMN_LLM - #DISV) AND (#dLmn < #LMN_LLM) AND (#dLmn - #LMN_D) < #LMN_LLM THEN
+	                #rVal := #LMN_LLM - #DISV;
+	                #gf := #dLmn - #LMN_LLM;
+	                #rVal := #Ianteil - #rVal;
+	                IF #rVal < #gf THEN
+	                    #rVal := #gf;
+	                END_IF;
+	                #Ianteil := #Ianteil - #rVal;
+	                
+	            END_IF;
+	            
+	        END_IF;
+	        
+	    END_IF;
+	    
+	    #LMN_P := #Panteil;
+	    #LMN_I := #Ianteil;
+	    #LMN_D := #Danteil;
+	    #sInvAlt := #ErKp;
+	    #sIanteilAlt := #Ianteil;
+	    
+	    #sbArwHLmOn := false;
+	    #sbArwLLmOn := false;
+	    
+	    IF #dLmn >= #LMN_HLM THEN
+	        #QLMN_HLM := true;
+	        #QLMN_LLM := false;
+	        #dLmn := #LMN_HLM;
+	        #sbArwHLmOn := true;
+	    ELSE
+	        #QLMN_HLM := false;
+	        IF #dLmn <= #LMN_LLM THEN
+	            #QLMN_LLM := true;
+	            #dLmn := #LMN_LLM;
+	            #sbArwLLmOn := true;
+	        ELSE
+	            #QLMN_LLM := false;
+	        END_IF;
+	        
+	    END_IF;
+	    
+	    #sLmn := #dLmn;
+	    #dLmn := #dLmn * #LMN_FAC + #LMN_OFF;
+	    #LMN := #dLmn;
+	    
+	    #dLmn := 2.764800e2 * #dLmn;
+	    
+	    IF #dLmn >= 3.251100e4 THEN
+	        #dLmn := 3.241100e4;
+	    ELSIF #dLmn <= -3.251200e4 THEN
+	        #dLmn := -3.251200e4;
+	    END_IF;
+	    
+	    #LMN_PER := DINT_TO_WORD(ROUND(#dLmn));
+	    IF #SP_Add THEN
+	        #SP_INT := #SP_INT + 1.0;
+	        #SP_Add := FALSE;
+	    ELSIF #SP_Sub THEN
+	        #SP_INT := #SP_INT - 1.0;
+	        #SP_Sub := FALSE;
+	    END_IF;
+	    IF #MAN_Add THEN
+	        #MAN := #MAN + 1.0;
+	        #MAN_Add := FALSE;
+	    ELSIF #SP_Sub THEN
+	        #MAN := #MAN - 1.0;
+	        #MAN_Sub := FALSE;
+	    ELSIF #MAN > 100.0 THEN
+	        #MAN := 100.0;
+	    ELSIF #MAN < 0.0 THEN
+	        #MAN := 0.0;
+	    END_IF;
+	    
+	    
+	END_IF;
+	
+	
+	
+	
+END_FUNCTION_BLOCK
+
