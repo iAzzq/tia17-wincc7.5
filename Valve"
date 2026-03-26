@@ -1,0 +1,236 @@
+FUNCTION_BLOCK "EleValve"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      Frist_Scan : Bool;
+      Pulse01s : Bool;
+      LorP : Bool;
+      FbkMode : Bool;   // 远程
+      FbkOpen : Bool;   // 开到位
+      FbkClose : Bool;   // 关到位
+      FbkOpenOver : Bool;   // 开过力矩
+      FbkCloseOver : Bool;   // 关过力矩
+   END_VAR
+
+   VAR_OUTPUT 
+      Open : Bool;   // 开输出
+      Close : Bool;   // 关输出
+   END_VAR
+
+   VAR 
+      Mode : Bool;
+      swopen : Bool;
+      swclose : Bool;
+      swopenover : Bool;
+      swcloseover : Bool;
+      openfail : Bool;   // 开失败
+      closefail : Bool;   // 关失败
+      Error : Bool;
+      enopen : Bool;   // 允许开 0：允许   1：禁止
+      enclose : Bool;   // 允许关 0：允许   1：禁止
+      haveopen : Bool;   // 正在开
+      haveclose : Bool;   // 正在关
+      hmi_open : Bool;   // 上位机手动开
+      hmi_close : Bool;   // 上位机手动关
+      auto_open : Bool;   // 自动开
+      auto_close : Bool;   // 自动关
+      auto : Bool;   // 自动模式
+      Pause : Bool;   // 暂停
+      Rest : Bool;   // 复位
+      Pulse01sOld : Bool;
+      Pulse01sR_TRIG : Bool;
+      Interlock : Bool;   // 联锁投入/切除
+      lopen1 : Bool;   // 联锁信号1开
+      lopen2 : Bool;   // 联锁信号2开
+      lclose1 : Bool;   // 联锁信号1关
+      lclose2 : Bool;   // 联锁信号2关
+      nDelay_Open : Int := 10;   // //检测时间
+      nDelay_Close : Int;
+      nDelayDisp_open : Int;   // //检测开动作时间
+      nDelayDisp_cloese : Int;   // //检测关动作时间
+      State : Int;   // //Motor状态用于触摸屏
+      SimAct : Bool;   // 仿真激活
+      SimFbkMode : Bool;   // 模式仿真
+      SimFbkOpen : Bool;   // 开到位仿真
+      SimFbkClose : Bool;   // 关到位仿真
+      SimFBKOver : Bool;   // 过载仿真
+      SimLopen : Bool;   // 联锁开仿真
+      SimLclose : Bool;   // 联锁关仿真
+   END_VAR
+
+
+BEGIN
+	//Valve Control block
+	//Programming language: SCL   
+	//The program version: 20210709 V1.0
+	//Program the author: Linshilei
+	//Program to modify:None
+	//Note:None
+	//Data Process
+	    #Mode := #FbkMode OR (#SimAct AND #SimFbkMode);
+	    #swopen:=#FbkOpen OR (#SimAct AND #SimFbkOpen);
+	    #swclose := #FbkClose OR (#SimAct AND #SimFbkClose);
+	    #swopenover := #FbkOpenOver OR (#SimAct AND #SimFBKOver);
+	    #swcloseover := #FbkCloseOver OR (#SimAct AND #SimFBKOver);
+	    #Error := #swopenover OR #swcloseover OR #openfail OR #closefail;
+	    IF #Pulse01s AND NOT #Pulse01sOld THEN   //Detect the 1S pulse rising edge
+	        #Pulse01sR_TRIG := TRUE;
+	    ELSE
+	        #Pulse01sR_TRIG := FALSE;
+	    END_IF;
+	    #Pulse01sOld := #Pulse01s;
+	
+	//#Open the control
+	    IF #Mode  AND NOT #auto  AND #hmi_open  THEN     //Manual open
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_open := FALSE;
+	        #nDelayDisp_open := 0;
+	    ELSIF  #Mode  AND #auto  AND #auto_open  THEN        // Automatically open
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_open := FALSE;
+	        #nDelayDisp_open := 0;
+	    ELSIF #Mode  AND #Interlock AND (#lopen1 OR #lopen2) THEN           //Interlocking open
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_open := FALSE;
+	        #nDelayDisp_open := 0;
+	    END_IF;
+	
+	    // Open the logic
+	    
+	    IF #haveopen  AND #Pulse01sR_TRIG THEN
+	        #nDelayDisp_open := #nDelayDisp_open + 1;
+	    END_IF;
+	    //------Judge the success of opening
+	    IF #haveopen AND #nDelayDisp_open <= #nDelay_Open AND #swopen THEN
+	        #haveopen := 0;
+	        #nDelayDisp_open := 0;
+	    END_IF;
+	    //-------Failed to open judgment
+	    IF #haveopen AND #nDelayDisp_open > #nDelay_Open AND NOT #swopen  THEN
+	        #openfail := TRUE;
+	        #haveopen := FALSE;
+	        #nDelayDisp_open := 0;
+	    END_IF;
+	    //---------Long signal output or pulse signal output
+	    IF #haveopen AND #LorP AND #nDelayDisp_open >= 0 AND #nDelayDisp_open <= 3 THEN
+	        #Open := #haveopen;
+	    ELSIF #haveopen AND NOT #LorP THEN
+	        #Open := #haveopen;
+	    ELSE
+	        #Open := FALSE;
+	    END_IF;
+	
+	    // Close  the control
+	    IF #Mode AND NOT #auto  AND #hmi_close THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Open := FALSE;
+	        #haveclose := TRUE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #nDelayDisp_cloese := 0;
+	    ELSIF #Mode  AND #auto  AND #auto_close  THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Open := FALSE;
+	        #haveclose := TRUE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #nDelayDisp_cloese := 0;
+	    ELSIF #Mode  AND #Interlock AND (#lclose1 OR #lclose2) THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Open := FALSE;
+	        #haveclose := TRUE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #nDelayDisp_cloese := 0;
+	    END_IF;
+	    
+	    // Close the logic
+	    IF #haveclose AND #Pulse01sR_TRIG THEN
+	        #nDelayDisp_cloese := #nDelayDisp_cloese + 1;
+	    END_IF;
+	    //------Judge the success of Closing
+	    IF #haveclose AND #nDelayDisp_cloese<= #nDelay_Close AND #swclose THEN
+	        #haveclose := FALSE;
+	        #nDelayDisp_cloese := 0;
+	    END_IF;
+	    //----------Failed to close judgment
+	    IF #haveclose AND #nDelayDisp_cloese > #nDelay_Close AND NOT #swclose THEN
+	        #haveclose := FALSE;
+	        #nDelayDisp_cloese := 0;
+	        #closefail := TRUE;
+	    END_IF;
+	    //---------Long signal output or pulse signal output
+	    IF #haveclose AND #LorP AND #nDelayDisp_cloese >= 0 AND #nDelayDisp_cloese <= 3 THEN
+	        #Close := #haveclose;
+	    ELSIF #haveclose AND NOT #LorP THEN
+	        #Close := #haveclose;
+	    ELSE
+	        #Close := FALSE;
+	    END_IF;
+	//--Pause 
+	    IF #Pause THEN
+	        #haveopen := FALSE;
+	        #haveclose := FALSE;
+	    END_IF;
+	//--Rest
+	    IF NOT #Mode OR #Rest  THEN
+	        #haveopen := FALSE;
+	        #haveclose := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_open := FALSE;
+	        #hmi_close := FALSE;
+	        #Rest := FALSE;
+	        #nDelayDisp_open := 0;
+	        #nDelayDisp_cloese := 0;
+	    END_IF;
+	    
+	//--State
+	    #State.%X0 := NOT #swopen AND NOT #swclose AND NOT #Error;
+	    #State.%X1 := #swclose;
+	    #State.%X2 := #swopen;
+	    #State.%X3 := #haveopen;
+	    #State.%X4 := #haveclose;
+	    #State.%X5 := #openfail;
+	    #State.%X6 := #closefail;
+	    #State.%X7 := #swopenover;
+	    #State.%X8 := #swcloseover;
+	    #State.%X9 := #Error;
+	//--Time
+	    IF NOT #haveopen THEN
+	        #nDelayDisp_open := 0;
+	    END_IF;
+	    IF NOT #haveclose THEN
+	        #nDelayDisp_cloese := 0;
+	    END_IF;
+END_FUNCTION_BLOCK
+
