@@ -1,0 +1,312 @@
+FUNCTION_BLOCK "MotorCtrl"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      Frist_Scan : Bool;   // 第一个扫描周期接通
+      Pulse01s : Bool;   // 1S周期
+      LorP : Bool;   // 0：长信号：1：脉冲信号
+      FbkMode : Bool;   // 模式切换 1：远程模式  0：本地模式
+      FbkReady : Bool;   // Motor备妥信号反馈
+      FbkRun : Bool;   // Motor运行信号反馈
+      FbkFault : Bool;   // Motor过载信号反馈
+      FbkCurrent : Int;   // Motor电流信号反馈
+      FbkCurrentMax : Real;   // Motor电流最大值
+      FbkFrequency : Int;   // Motor速度信号反馈
+      FrequencySet : Real;   // Motor速度给定值
+   END_VAR
+
+   VAR_OUTPUT 
+      Open : Bool;   // 开输出
+      Close : Bool;   // 关输出
+      Frequency : Int;   // Motor速度信号给定
+      Current_R : Real;   // Motor电流信号输出
+      Frequency_R : Real;   // Motor速度信号输出
+   END_VAR
+
+   VAR 
+      Mode : Bool;
+      Ready : Bool;   // 备妥
+      Run : Bool;   // 运行
+      Fault : Bool;   // 故障
+      Error : Bool;
+      openfail : Bool;   // 开失败
+      opencomplete : Bool;   // 启动完成
+      closefail : Bool;   // 关失败
+      closecomplete : Bool;   // 停止完成
+      Runlost : Bool;   // 运行信号丢失
+      enopen : Bool;   // 允许开 0：允许   1：禁止
+      enclose : Bool;   // 允许关 0：允许   1：禁止
+      haveopen : Bool;   // 正在开
+      haveclose : Bool;   // 正在关
+      hmi_open : Bool;   // 上位机手动开
+      hmi_close : Bool;   // 上位机手动关
+      auto_open : Bool;   // 自动开
+      auto_close : Bool;   // 自动关
+      auto : Bool;   // 自动模式
+      Rest : Bool;   // 复位
+      Pulse01sOld : Bool;
+      Pulse01sR_TRIG : Bool;
+      Interlock : Bool;   // 联锁投入/切除
+      lopen1 : Bool;   // 联锁信号1开
+      lopen2 : Bool;   // 联锁信号2开
+      lclose1 : Bool;   // 联锁信号1关
+      lclose2 : Bool;   // 联锁信号2关
+      nDelay : Int := 10;   // //检测时间
+      CU_open : Int;   // //检测开动作时间
+      CU_cloese : Int;   // //检测关动作时间
+      State : Int;   // //Motor状态用于触摸屏
+      SimAct : Bool;   // 仿真激活
+      SimMode : Bool;   // 模式仿真
+      SimRun : Bool;   // 运行仿真
+      SimFault : Bool;   // 故障仿真
+      SimLopen : Bool;   // 联锁开仿真
+      SimLclose : Bool;   // 联锁关仿真
+      CurrentDisp : Bool;   // 上位机电流显示允许
+      FrequencyDisp : Bool;   // 上位机频率显示允许
+   END_VAR
+
+
+BEGIN
+	//Motor Control block
+	//Programming language: SCL   
+	//The program version: 20210709 V1.0
+	//Program the author: Linshilei
+	//Program to modify:None
+	//Note:None
+	    
+	    REGION Data  //数据处理 
+	    IF #FbkMode  OR( #SimAct AND #SimMode ) THEN
+	        #Mode := TRUE;//Mode
+	    ELSE
+	        #Mode := FALSE;
+	    END_IF;
+	    IF #FbkReady   THEN
+	        #Ready := TRUE;//Ready
+	    ELSE
+	        #Ready := FALSE;
+	    END_IF;
+	    IF #FbkRun  OR (#SimAct  AND #SimRun) THEN
+	        #Run := TRUE;//运行
+	    ELSE
+	        #Run := FALSE;
+	    END_IF;
+	    IF #FbkFault OR (#SimAct  AND #SimFault ) THEN
+	        #Fault := TRUE;//故障
+	    ELSE
+	        #Fault := FALSE;
+	    END_IF;
+	    IF #openfail OR #closefail  OR #Runlost   OR  #Fault THEN
+	        #Error := TRUE;//故障
+	    ELSE
+	        #Error := FALSE;
+	    END_IF;
+	    IF #Pulse01s AND NOT #Pulse01sOld THEN//检测1S脉冲上升沿
+	        #Pulse01sR_TRIG := TRUE;
+	    ELSE
+	        #Pulse01sR_TRIG := FALSE;
+	    END_IF;
+	    #Pulse01sOld := #Pulse01s;
+	END_REGION
+	REGION Open  //开启控制
+	    IF #Mode  AND NOT #auto  AND #hmi_open  THEN     //手动开启
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #opencomplete := FALSE;
+	        #hmi_open := FALSE;
+	        #CU_open := 0;
+	    ELSIF  #Mode  AND #auto  AND #auto_open  THEN        //自动开启
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #opencomplete := FALSE;
+	        #hmi_open := FALSE;
+	        #CU_open := 0;
+	    ELSIF #Mode  AND #Interlock AND (#lopen1 OR #lopen2) THEN           //联锁开启
+	        #haveopen := TRUE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := FALSE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #opencomplete := FALSE;
+	        #hmi_open := FALSE;
+	        #CU_open := 0;
+	    END_IF;
+	END_REGION
+	REGION OpenControl //开启逻辑
+	    
+	    IF #haveopen  AND #Pulse01sR_TRIG THEN
+	        #CU_open := #CU_open + 1;
+	    END_IF;
+	    //------判断开成功
+	    IF #haveopen AND #CU_open <= #nDelay AND #Run THEN
+	        #opencomplete := TRUE;
+	      //  #CU_open := 0;
+	    END_IF;
+	    //-------判断开失败
+	    IF #haveopen AND #CU_open > #nDelay AND NOT #opencomplete AND NOT #Run THEN
+	        #openfail := TRUE;
+	        #haveopen := FALSE;
+	        #CU_open := 0;
+	    END_IF;
+	    //-------判断运行信号丢失
+	    IF #haveopen AND #opencomplete AND NOT #Run THEN
+	        #Runlost := TRUE;
+	        #haveopen := FALSE;
+	        #opencomplete := FALSE;
+	        #CU_open := 0;
+	    END_IF;
+	    //---------长信号输出或者脉冲信号输出
+	    IF #haveopen AND #LorP AND #CU_open >= 0 AND #CU_open <= 3 THEN
+	        #Open := #haveopen;
+	    ELSIF #haveopen AND NOT #LorP THEN
+	        #Open := #haveopen;
+	    ELSE
+	        #haveopen := FALSE;
+	        #Open := #haveopen;
+	    END_IF;
+	END_REGION
+	REGION Close     //关闭控制
+	    IF #Mode AND NOT #auto  AND #hmi_close THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := TRUE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #CU_cloese := 0;
+	    ELSIF #Mode  AND #auto  AND #auto_close  THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := TRUE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #CU_cloese := 0;
+	    ELSIF #Mode  AND #Interlock AND (#lclose1 OR #lclose2) THEN
+	        #haveopen := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Close := FALSE;
+	        #haveclose := TRUE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_close := FALSE;
+	        #CU_cloese := 0;
+	    END_IF;
+	    
+	END_REGION
+	REGION CloseControl //关闭逻辑
+	    IF #haveclose AND #Pulse01sR_TRIG THEN
+	        #CU_cloese := #CU_cloese + 1;
+	    END_IF;
+	    //----------判断关成功
+	    IF #haveclose AND #CU_cloese<= #nDelay AND NOT #Run THEN
+	        #haveclose := FALSE;
+	        #CU_cloese := 0;
+	        #closecomplete := TRUE;
+	    END_IF;
+	    //----------判断关失败
+	    IF #haveclose AND #CU_cloese > #nDelay AND  #Run THEN
+	        #haveclose := FALSE;
+	        #CU_cloese := 0;
+	        #closefail := TRUE;
+	    END_IF;
+	    //---------长信号输出或者脉冲信号输出
+	    IF #haveclose AND #LorP AND #CU_cloese >= 0 AND #CU_cloese <= 3 THEN
+	        #Close := #haveclose;
+	    ELSIF #haveclose AND NOT #LorP THEN
+	        #Close := #haveclose;
+	    ELSE
+	        #haveclose := FALSE;
+	        #Close := #haveclose;
+	    END_IF;
+	END_REGION
+	REGION Rest //复位
+	    IF NOT #Mode OR #Rest  THEN
+	        #haveopen := FALSE;
+	        #haveclose := FALSE;
+	        #openfail := FALSE;
+	        #closefail := FALSE;
+	        #Runlost := FALSE;
+	        #auto_open := FALSE;
+	        #auto_close := FALSE;
+	        #hmi_open := FALSE;
+	        #hmi_close := FALSE;
+	        #opencomplete := FALSE;
+	        #closecomplete := FALSE;
+	        #Rest := FALSE;
+	        #CU_open := 0;
+	        #CU_cloese := 0;
+	    END_IF;
+	END_REGION
+	REGION AnalogProcess  //模拟量处理
+	    //--------------电流显示处理
+	    #Current_R := INT_TO_REAL(#FbkCurrent) / 27648.0 * #FbkCurrentMax;
+	    IF #Current_R > #FbkCurrentMax THEN
+	        #Current_R := #FbkCurrentMax;//电流显示上限
+	    END_IF;
+	    IF #Current_R < 0.0 THEN
+	        #Current_R := 0.0;//电流显示下限
+	    END_IF;
+	    //--------------频率显示处理
+	    #Frequency_R := INT_TO_REAL(#FbkFrequency) / 27648.0 * 50.0;
+	    IF #Frequency_R > 50.0 THEN
+	        #Frequency_R := 50.0;//频率显示上限
+	    END_IF;
+	    IF #Frequency_R < 00.0 THEN
+	        #Frequency_R := 0.0;//频率显示下限
+	    END_IF;
+	    //--------------没有运行信号，电流/频率显示为0.0
+	    IF NOT #Run  THEN
+	        #Current_R := 0.0;
+	        #Frequency_R := 0.0;
+	    END_IF;
+	    //--------------频率给定处理
+	    #Frequency := REAL_TO_INT((#FrequencySet / 50.0) * 27648.0);//频率给定
+	    IF #Frequency > 27648 THEN
+	        #Frequency := 27648;//输出上限
+	    END_IF;
+	    IF #Frequency < 0 THEN
+	        #Frequency := 0;//输出下限
+	    END_IF;
+	 
+	    
+	END_REGION
+	REGION State  //状态
+	    #State.%X0 := NOT #Run AND NOT #Fault AND NOT #Error AND NOT #haveopen AND NOT #haveclose;//待机中
+	    #State.%X1 := #haveopen;//开启
+	    #State.%X2 := #haveclose;//关闭
+	    #State.%X3 := #Run AND NOT #haveclose;//运行
+	    #State.%X4 := #Error;//错误
+	    #State.%X5 := #Fault;//故障
+	    #State.%X6 := #openfail;//开失败
+	    #State.%X7 := #closefail;//关失败
+	    #State.%X8 := #Runlost;//运行信号丢失
+	END_REGION
+	
+	
+	
+	
+END_FUNCTION_BLOCK
+
