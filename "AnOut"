@@ -1,0 +1,71 @@
+FUNCTION_BLOCK "AnOut"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.1
+   VAR_INPUT 
+      PV_Input : Int;
+      PV_HR : Real := 100.0;
+      PV_LR : Real := 0.0;
+   END_VAR
+
+   VAR_OUTPUT 
+      Out : Int;
+      Qbroken : Bool;
+      Qoverrun : Bool;
+   END_VAR
+
+   VAR 
+      PV_R : Real;
+      SV_R : Real;
+      Out_R : Real;
+      SV_Add : Bool;
+      SV_Sub : Bool;
+      Err_broken : Bool;
+      Err_overrun : Bool;
+   END_VAR
+
+
+BEGIN
+	//The regulator block
+	//Programming language: SCL   
+	//The program version: 20210722 V1.0
+	//Program the author: Linshilei
+	//Program to modify:None
+	//Note:None
+	//Input Process
+	IF #PV_Input > 32511 THEN //------input valve Overrun
+	#Err_overrun := TRUE;
+	#Err_broken := FALSE;
+	#PV_R := 0.0;
+	ELSE
+	    #Err_overrun := FALSE;
+	END_IF;
+	
+	IF #PV_Input <= -4864 THEN  //------input "valve" Broken
+	    #Err_overrun := FALSE;
+	    #Err_broken := TRUE;
+	    #PV_R := 0.0;
+	ELSE
+	    #Err_broken := FALSE;
+	END_IF;
+	IF #PV_Input >= 0 AND #PV_Input <= 27648  THEN
+	    #PV_R := INT_TO_REAL(#PV_Input) / 27648.0 * (#PV_HR - #PV_LR) + #PV_LR; //-------------Process value
+	END_IF;
+	//Add or Sub
+	IF #SV_Add THEN      //Add
+	    #SV_R := #SV_R + 1.0;
+	    #SV_Add := FALSE;
+	ELSIF #SV_Sub THEN   //Sub
+	    #SV_R := #SV_R - 1.0;
+	    #SV_Sub := FALSE;
+	END_IF;
+	//#Output Process
+	#Out_R := #SV_R / (#PV_HR - #PV_LR) * 27648.0;
+	IF #Out_R >= 0.0 AND #Out_R <= 27648.0 THEN
+	    #Out := REAL_TO_INT(#Out_R);
+	ELSE
+	    #SV_R := 0.0;
+	    #Out_R := 0.0;
+	    #Out := 0;
+	END_IF;
+END_FUNCTION_BLOCK
+
